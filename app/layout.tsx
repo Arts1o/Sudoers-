@@ -2,8 +2,9 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Edu-Agent — IA agentique pour l\'éducation',
-  description: 'Base de hackathon : un agent IA au service de l\'éducation.',
+  title: 'Edu-Agent — Fabrique à histoires',
+  description:
+    "IA agentique au service de l'éducation : compose un conte sur mesure, puis continue avec Lumi.",
 };
 
 export default function RootLayout({
@@ -13,6 +14,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="fr">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Nunito:wght@400;500;600;700;800&display=swap"
+          rel="stylesheet"
+        />
+      </head>
       <body>{children}</body>
     </html>
   );

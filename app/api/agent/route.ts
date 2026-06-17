@@ -5,7 +5,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 300; // l'agent peut prendre du temps (recherche web + raisonnement)
 
 export async function POST(req: Request) {
-  let body: { messages?: Anthropic.MessageParam[] };
+  let body: { messages?: Anthropic.MessageParam[]; context?: string };
   try {
     body = await req.json();
   } catch {
@@ -17,6 +17,8 @@ export async function POST(req: Request) {
     return new Response('`messages` est requis', { status: 400 });
   }
 
+  const context = typeof body.context === 'string' ? body.context : undefined;
+
   const encoder = new TextEncoder();
   const send = (controller: ReadableStreamDefaultController, e: AgentEvent) =>
     controller.enqueue(encoder.encode(JSON.stringify(e) + '\n'));
@@ -25,7 +27,7 @@ export async function POST(req: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        await runAgent(messages, (e) => send(controller, e));
+        await runAgent(messages, (e) => send(controller, e), { context });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         send(controller, { type: 'error', message });
