@@ -385,6 +385,48 @@ body {
   margin-bottom: 6px;
 }
 .lesson p { margin: 0; font-size: 15.5px; line-height: 1.65; color: #3d3558; }
+
+/* ---------- Lecture à voix haute ---------- */
+.narration {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 0 26px;
+  padding: 13px 16px;
+  border-radius: 13px;
+  background: linear-gradient(180deg, rgba(155, 127, 224, 0.12), rgba(155, 127, 224, 0.05));
+  border: 1px solid rgba(155, 127, 224, 0.28);
+}
+.narr-load {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 700;
+  font-size: 14.5px;
+  color: var(--violet);
+}
+.narr-play {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  font-size: 15px;
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(180deg, #a98fe6, var(--violet) 60%, #7a5fd0);
+  box-shadow: 0 10px 26px -12px rgba(138, 111, 209, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.narr-play:hover { transform: translateY(-2px); box-shadow: 0 16px 34px -14px rgba(138, 111, 209, 1); }
+.narr-play:active { transform: translateY(0); }
+.narr-hint { font-size: 12.5px; font-weight: 700; color: var(--ink-soft); opacity: 0.8; }
+.narr-err { font-size: 14.5px; color: #9b3d6e; font-weight: 600; }
+.narr-err .retry { color: var(--violet); }
+.spin-dark { border-color: rgba(138, 111, 209, 0.3); border-top-color: var(--violet); }
+
 .story-foot {
   display: flex;
   gap: 10px;

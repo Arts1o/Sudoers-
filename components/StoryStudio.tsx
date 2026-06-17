@@ -36,6 +36,14 @@ export default function StoryStudio({
   const [loadIdx, setLoadIdx] = useState(0);
   const storyRef = useRef<HTMLElement>(null);
 
+  // Lecture à voix haute (ElevenLabs, via /api/tts)
+  type AudioStatus = 'idle' | 'loading' | 'ready' | 'error';
+  const [audioStatus, setAudioStatus] = useState<AudioStatus>('idle');
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioError, setAudioError] = useState('');
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
   useEffect(() => {
     if (status !== 'loading') return;
     setLoadIdx(0);
@@ -49,11 +57,68 @@ export default function StoryStudio({
     }
   }, [status, story]);
 
+  // Dès que l'audio est prêt, on tente la lecture (le navigateur peut la bloquer ;
+  // l'utilisateur garde alors le bouton « Écouter »).
+  useEffect(() => {
+    if (audioStatus === 'ready' && audioRef.current) {
+      audioRef.current.play().catch(() => {});
+    }
+  }, [audioStatus, audioUrl]);
+
+  // Libère le blob audio précédent quand il change, et au démontage.
+  useEffect(() => {
+    return () => {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+    };
+  }, [audioUrl]);
+
   const setPick = (cat: CatKey, val: string) => setPicks((p) => ({ ...p, [cat]: val }));
+
+  function resetAudio() {
+    setAudioStatus('idle');
+    setAudioUrl(null); // l'effet de nettoyage révoque l'ancien blob
+    setAudioError('');
+    setPlaying(false);
+  }
+
+  // Envoie l'histoire à /api/tts (ElevenLabs côté serveur) et récupère un MP3 à lire.
+  async function narrate(s: Story) {
+    setAudioStatus('loading');
+    setAudioError('');
+    setPlaying(false);
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ story: s }),
+      });
+      const ct = res.headers.get('content-type') || '';
+      if (res.ok && ct.includes('audio')) {
+        const blob = await res.blob();
+        setAudioUrl(URL.createObjectURL(blob));
+        setAudioStatus('ready');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setAudioError(data.message || "La lecture à voix haute n'a pas pu être générée.");
+        setAudioStatus('error');
+      }
+    } catch {
+      setAudioError('La lecture à voix haute a échoué. Vérifie ta connexion, puis réessaie.');
+      setAudioStatus('error');
+    }
+  }
+
+  const togglePlay = () => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (el.paused) el.play().catch(() => {});
+    else el.pause();
+  };
 
   const surprise = () => {
     setStory(null);
     setStatus('idle');
+    resetAudio();
     setAge(AGES[Math.floor(Math.random() * AGES.length)].id);
     const next = { ...DEFAULT_PICKS };
     CAT_ORDER.forEach((c) => {
@@ -72,6 +137,7 @@ export default function StoryStudio({
     setStatus('loading');
     setError('');
     setStory(null);
+    resetAudio();
     try {
       const res = await fetch('/api/story', {
         method: 'POST',
@@ -80,8 +146,11 @@ export default function StoryStudio({
       });
       const data = await res.json();
       if (data.ok && data.story) {
-        setStory(data.story as Story);
+        const built = data.story as Story;
+        setStory(built);
         setStatus('done');
+        // L'histoire est écrite : on lance la lecture à voix haute.
+        narrate(built);
       } else {
         setError(data.message || "La création de l'histoire n'a pas abouti.");
         setStatus('error');
@@ -224,6 +293,41 @@ export default function StoryStudio({
             <div className="story-band" aria-hidden="true" />
             <div className="story-kicker">Une histoire pour les {ageLabel}</div>
             <h2 className="story-title">{story.titre}</h2>
+
+            {audioStatus !== 'idle' && (
+              <div className="narration">
+                {audioStatus === 'loading' && (
+                  <span className="narr-load">
+                    <span className="spin spin-dark" /> On prête une voix à l’histoire…
+                  </span>
+                )}
+                {audioStatus === 'ready' && audioUrl && (
+                  <>
+                    <button type="button" className="narr-play" onClick={togglePlay}>
+                      {playing ? '❚❚ Pause' : '▶ Écouter l’histoire'}
+                    </button>
+                    <audio
+                      ref={audioRef}
+                      src={audioUrl}
+                      preload="auto"
+                      onPlay={() => setPlaying(true)}
+                      onPause={() => setPlaying(false)}
+                      onEnded={() => setPlaying(false)}
+                    />
+                    <span className="narr-hint">Lecture par ElevenLabs</span>
+                  </>
+                )}
+                {audioStatus === 'error' && (
+                  <span className="narr-err">
+                    {audioError}{' '}
+                    <button type="button" className="retry" onClick={() => narrate(story)}>
+                      Réessayer
+                    </button>
+                  </span>
+                )}
+              </div>
+            )}
+
             <div className="story-body">
               {story.paragraphes.map((p, i) => (
                 <p key={i} className={i === 0 ? 'story-p dropcap' : 'story-p'}>
