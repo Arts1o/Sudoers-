@@ -2,8 +2,15 @@ import Anthropic from '@anthropic-ai/sdk';
 import { SYSTEM_PROMPT } from './system-prompt';
 import { customTools, executeTool } from './tools';
 
-const client = new Anthropic(); // lit ANTHROPIC_API_KEY depuis l'environnement
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';
+
+// Client construit paresseusement : sans ANTHROPIC_API_KEY, le SDK lève une
+// erreur dès la construction. On l'évite pour pouvoir afficher un message clair.
+let _client: Anthropic | null = null;
+function getClient(): Anthropic {
+  if (!_client) _client = new Anthropic(); // lit ANTHROPIC_API_KEY depuis l'env
+  return _client;
+}
 
 export type AgentEvent =
   | { type: 'text'; text: string }
@@ -26,6 +33,19 @@ export async function runAgent(
   messages: Anthropic.MessageParam[],
   emit: (event: AgentEvent) => void,
 ): Promise<void> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    emit({
+      type: 'text',
+      text:
+        "🔑 Aucune clé API détectée. Copiez `.env.example` vers `.env.local` " +
+        'et renseignez `ANTHROPIC_API_KEY` (https://console.anthropic.com/settings/keys), ' +
+        'puis relancez `npm run dev`.',
+    });
+    emit({ type: 'done' });
+    return;
+  }
+
+  const client = getClient();
   const working: Anthropic.MessageParam[] = [...messages];
   const tools = [webSearchTool, ...customTools];
 
