@@ -35,6 +35,18 @@ const LOADING_LINES = [
   "Il était une fois…",
 ];
 
+/*  Lecture à voix haute (ElevenLabs text-to-speech).
+    ⚠️ SÉCURITÉ : cette app est 100 % côté navigateur. La clé ci-dessous est donc
+    visible par quiconque ouvre la page. Pour la production, déplace l'appel
+    ElevenLabs derrière un petit backend/proxy et NE LIVRE PAS la clé au client.
+    En attendant, on lit la clé depuis une variable d'env (VITE_ELEVENLABS_API_KEY)
+    si elle existe, sinon on retombe sur la valeur en dur. */
+const ELEVENLABS_API_KEY =
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_ELEVENLABS_API_KEY) ||
+  "sk_bea5c035f228b65a2ad6aa45238b225a1c37594ad4742828";
+const ELEVENLABS_VOICE_ID = "EXAVITQu4vr4xnSDxMaL"; // « Sarah » — voix douce, dispo en plan gratuit
+const ELEVENLABS_MODEL_ID = "eleven_multilingual_v2"; // multilingue, bon rendu en français
+
 export default function App() {
   const [age, setAge] = useState("7-9");
   const [picks, setPicks] = useState({
@@ -48,6 +60,13 @@ export default function App() {
   const [error, setError] = useState("");
   const [loadIdx, setLoadIdx] = useState(0);
   const storyRef = useRef(null);
+
+  // Lecture à voix haute
+  const [audioStatus, setAudioStatus] = useState("idle"); // idle | loading | ready | error
+  const [audioUrl, setAudioUrl] = useState(null);
+  const [audioError, setAudioError] = useState("");
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef(null);
 
   // Polices
   useEffect(() => {
@@ -72,11 +91,25 @@ export default function App() {
     }
   }, [status, story]);
 
+  // Dès que l'audio est prêt, on tente la lecture (le navigateur peut la bloquer ;
+  // l'utilisateur garde alors le bouton « Écouter »).
+  useEffect(() => {
+    if (audioStatus === "ready" && audioRef.current) {
+      audioRef.current.play().catch(() => {});
+    }
+  }, [audioStatus, audioUrl]);
+
+  // Libère le blob audio précédent quand il change, et au démontage.
+  useEffect(() => {
+    return () => { if (audioUrl) URL.revokeObjectURL(audioUrl); };
+  }, [audioUrl]);
+
   const setPick = (cat, val) => setPicks(p => ({ ...p, [cat]: val }));
 
   const surprise = () => {
     setStory(null);
     setStatus("idle");
+    resetAudio();
     setAge(AGES[Math.floor(Math.random() * AGES.length)].id);
     const next = {};
     Object.keys(CATS).forEach(c => {
@@ -93,6 +126,7 @@ export default function App() {
     setStatus("loading");
     setError("");
     setStory(null);
+    resetAudio();
 
     const a = AGES.find(x => x.id === age);
     const system =
@@ -139,22 +173,85 @@ Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour, sans balises M
       const clean = text.replace(/```json/gi, "").replace(/```/g, "").trim();
       let parsed = null;
       try { parsed = JSON.parse(clean); } catch (_) { parsed = null; }
+      let built;
       if (parsed && Array.isArray(parsed.paragraphes) && parsed.paragraphes.length) {
-        setStory({
+        built = {
           titre: parsed.titre || "Ton histoire",
           paragraphes: parsed.paragraphes.filter(Boolean),
           lecon: parsed.lecon || "",
-        });
+        };
       } else {
         const paras = clean.split(/\n\n+/).filter(Boolean);
-        setStory({ titre: "Ton histoire", paragraphes: paras.length ? paras : [clean], lecon: "" });
+        built = { titre: "Ton histoire", paragraphes: paras.length ? paras : [clean], lecon: "" };
       }
+      setStory(built);
       setStatus("done");
+      // L'histoire est écrite : on lance la lecture à voix haute.
+      narrate(built);
     } catch (e) {
       setStatus("error");
       setError("La création de l'histoire n'a pas abouti. Vérifie ta connexion, puis réessaie.");
     }
   }
+
+  function resetAudio() {
+    setAudioStatus("idle");
+    setAudioUrl(null); // l'effet de nettoyage révoque l'ancien blob
+    setAudioError("");
+    setPlaying(false);
+  }
+
+  // Envoie le texte de l'histoire à ElevenLabs et récupère un MP3 à lire.
+  async function narrate(s) {
+    if (!s) return;
+    setAudioStatus("loading");
+    setAudioError("");
+    setPlaying(false);
+
+    const text = [
+      s.titre,
+      ...s.paragraphes,
+      s.lecon ? "Ce que tu as appris : " + s.lecon : "",
+    ].filter(Boolean).join("\n\n");
+
+    try {
+      const res = await fetch(
+        "https://api.elevenlabs.io/v1/text-to-speech/" + ELEVENLABS_VOICE_ID,
+        {
+          method: "POST",
+          headers: {
+            "xi-api-key": ELEVENLABS_API_KEY,
+            "Content-Type": "application/json",
+            Accept: "audio/mpeg",
+          },
+          body: JSON.stringify({
+            text,
+            model_id: ELEVENLABS_MODEL_ID,
+            voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.75,
+              style: 0.15,
+              use_speaker_boost: true,
+            },
+          }),
+        }
+      );
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const blob = await res.blob();
+      setAudioUrl(URL.createObjectURL(blob));
+      setAudioStatus("ready");
+    } catch (e) {
+      setAudioStatus("error");
+      setAudioError("La lecture à voix haute n'a pas pu être générée.");
+    }
+  }
+
+  const togglePlay = () => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (el.paused) el.play().catch(() => {});
+    else el.pause();
+  };
 
   const recap = ready
     ? `${picks.personnage}, dans ${picks.lieu}, avec ${picks.objet} — pour découvrir ${picks.theme}.`
@@ -258,6 +355,39 @@ Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour, sans balises M
             <div className="story-band" aria-hidden="true" />
             <div className="story-kicker">Une histoire pour les {AGES.find(a => a.id === age)?.label}</div>
             <h2 className="story-title">{story.titre}</h2>
+
+            {audioStatus !== "idle" && (
+              <div className="narration">
+                {audioStatus === "loading" && (
+                  <span className="narr-load">
+                    <span className="spin spin-dark" /> On prête une voix à l'histoire…
+                  </span>
+                )}
+                {audioStatus === "ready" && audioUrl && (
+                  <>
+                    <button className="narr-play" onClick={togglePlay}>
+                      {playing ? "❚❚ Pause" : "▶ Écouter l'histoire"}
+                    </button>
+                    <audio
+                      ref={audioRef}
+                      src={audioUrl}
+                      preload="auto"
+                      onPlay={() => setPlaying(true)}
+                      onPause={() => setPlaying(false)}
+                      onEnded={() => setPlaying(false)}
+                    />
+                    <span className="narr-hint">Lecture par ElevenLabs</span>
+                  </>
+                )}
+                {audioStatus === "error" && (
+                  <span className="narr-err">
+                    {audioError}{" "}
+                    <button className="retry" onClick={() => narrate(story)}>Réessayer</button>
+                  </span>
+                )}
+              </div>
+            )}
+
             <div className="story-body">
               {story.paragraphes.map((p, i) => (
                 <p key={i} className={i === 0 ? "story-p dropcap" : "story-p"}>{p}</p>
@@ -421,6 +551,25 @@ const CSS = `
 .lesson-label{font-weight:800; letter-spacing:.04em; font-size:12.5px;
   text-transform:uppercase; color:var(--gold-deep); margin-bottom:6px;}
 .lesson p{margin:0; font-size:15.5px; line-height:1.65; color:#3D3558;}
+/* Barre de lecture à voix haute */
+.narration{display:flex; align-items:center; flex-wrap:wrap; gap:12px;
+  margin:0 0 26px; padding:13px 16px; border-radius:13px;
+  background:linear-gradient(180deg, rgba(155,127,224,.12), rgba(155,127,224,.05));
+  border:1px solid rgba(155,127,224,.28);}
+.narr-load{display:inline-flex; align-items:center; gap:9px;
+  font-weight:700; font-size:14.5px; color:var(--violet);}
+.narr-play{appearance:none; cursor:pointer; font:inherit; font-weight:800; font-size:15px;
+  color:#fff; padding:10px 20px; border-radius:999px; border:none;
+  background:linear-gradient(180deg, #a98fe6, var(--violet) 60%, #7a5fd0);
+  box-shadow:0 10px 26px -12px rgba(138,111,209,.9), inset 0 1px 0 rgba(255,255,255,.35);
+  transition:transform .15s, box-shadow .15s;}
+.narr-play:hover{transform:translateY(-2px); box-shadow:0 16px 34px -14px rgba(138,111,209,1);}
+.narr-play:active{transform:translateY(0);}
+.narr-hint{font-size:12.5px; font-weight:700; color:var(--ink-soft); opacity:.8;}
+.narr-err{font-size:14.5px; color:#9b3d6e; font-weight:600;}
+.narr-err .retry{color:var(--violet);}
+.spin-dark{border-color:rgba(138,111,209,.3); border-top-color:var(--violet);}
+
 .story-foot{display:flex; gap:10px; flex-wrap:wrap; margin-top:26px;
   padding-top:20px; border-top:1px solid rgba(42,35,71,.12);}
 .story-foot .ghost{color:var(--ink); border-color:rgba(42,35,71,.18);}
